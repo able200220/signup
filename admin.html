@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>신청 관리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<style>
+:root{
+  --paper:#F3F5F0; --surface:#FFFFFF; --ink:#18211C; --muted:#5D6A62; --line:#D9DFD8;
+  --board:#1E5E46; --board-ink:#FFFFFF; --seat:#E9C94A; --full:#A8432F;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --paper:#121714; --surface:#1A211D; --ink:#E7ECE8; --muted:#9AA79F; --line:#2C3631;
+    --board:#2F8A67; --board-ink:#FFFFFF; --seat:#E2C24A; --full:#E07A63; color-scheme: dark; }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper); color:var(--ink); font-family:"Pretendard",-apple-system,"Malgun Gothic",sans-serif; font-size:15px; line-height:1.5;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px)}
+.wrap{max-width:1040px; margin:0 auto; padding:0 18px 60px}
+header{background:var(--board); color:var(--board-ink)}
+header .wrap{display:flex; justify-content:space-between; align-items:center; padding-top:14px; padding-bottom:14px; gap:12px; flex-wrap:wrap}
+header h1{margin:0; font-size:1.15rem}
+.schoolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.schoolbar select{width:auto; min-width:220px; font-weight:700}
+nav{display:flex; gap:4px; flex-wrap:wrap; margin:18px 0}
+nav button{background:transparent; color:var(--muted); border:1px solid var(--line)}
+nav button[aria-selected="true"]{background:var(--ink); color:var(--paper); border-color:var(--ink)}
+button{font:inherit; cursor:pointer; border:0; border-radius:8px; padding:9px 14px; font-weight:600}
+.btn{background:var(--board); color:var(--board-ink)}
+.btn-line{background:transparent; color:var(--ink); border:1px solid var(--line)}
+.btn-danger{background:transparent; color:var(--full); border:1px solid currentColor}
+header .btn-line{color:var(--board-ink); border-color:rgba(255,255,255,.5)}
+input,textarea,select{font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:100%}
+textarea{min-height:90px; resize:vertical}
+input[type=checkbox]{width:auto}
+input:focus-visible,button:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--seat); outline-offset:1px}
+label{display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px}
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px}
+.panel h2{margin:0 0 12px; font-size:1.05rem}
+.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px}
+.check{display:flex; gap:8px; align-items:center; font-size:.95rem; color:var(--ink); margin:0}
+.bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:14px}
+.muted{color:var(--muted); font-size:.88rem}
+.scroll{overflow-x:auto}
+table{width:100%; border-collapse:collapse; min-width:640px}
+th,td{text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:middle}
+th{font-size:.82rem; color:var(--muted); font-weight:600}
+td.num{font-variant-numeric:tabular-nums}
+td input{padding:6px 8px}
+.full{color:var(--full); font-weight:700}
+.stat{display:flex; gap:24px; flex-wrap:wrap; margin-bottom:6px}
+.stat b{font-size:1.6rem; display:block; font-variant-numeric:tabular-nums}
+.link-box{display:grid; grid-template-columns:1fr auto; gap:18px; align-items:start}
+.link-url{font-size:1.05rem; font-weight:700; word-break:break-all; margin:4px 0 10px}
+#qr{background:#fff; padding:8px; border-radius:8px; line-height:0}
+#qr img{width:168px; height:168px; image-rendering:pixelated}
+.danger{border-color:var(--full)}
+.hidden{display:none !important}
+#login{max-width:380px; margin:60px auto}
+#toast{position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:10px 16px; border-radius:10px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:10}
+#toast.on{opacity:1}
+@media (max-width:560px){ .link-box{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>프로그램 신청 관리</h1>
+  <div class="schoolbar hidden" id="schoolbar">
+    <select id="schoolSel" aria-label="학교 선택"></select>
+    <button class="btn-line" id="btnAddSchool">학교 추가</button>
+    <button class="btn-line" id="btnOut">로그아웃</button>
+  </div>
+</div></header>
+
+<div class="wrap">
+  <!-- 로그인 -->
+  <section class="panel" id="login">
+    <h2>관리자 로그인</h2>
+    <div style="display:grid; gap:10px">
+      <div><label for="email">이메일</label><input id="email" type="email" autocomplete="username"></div>
+      <div><label for="pw">비밀번호</label><input id="pw" type="password" autocomplete="current-password"></div>
+      <button class="btn" id="btnLogin">로그인</button>
+      <span class="muted" id="loginMsg"></span>
+    </div>
+  </section>
+
+  <div id="app" class="hidden">
+    <nav role="tablist">
+      <button data-tab="programs" aria-selected="true">프로그램</button>
+      <button data-tab="apps" aria-selected="false">신청자</button>
+      <button data-tab="roster" aria-selected="false">학생 명단</button>
+      <button data-tab="settings" aria-selected="false">학교 설정·링크</button>
+    </nav>
+
+    <!-- 프로그램 -->
+    <section data-pane="programs">
+      <div class="panel">
+        <div class="stat" id="stats"></div>
+        <div class="scroll"><table>
+          <thead><tr><th style="width:56px">순서</th><th>프로그램 이름</th><th>설명</th><th style="width:80px">정원</th><th style="width:70px">신청</th><th style="width:56px">공개</th><th style="width:150px"></th></tr></thead>
+          <tbody id="progRows"></tbody>
+        </table></div>
+        <div class="bar">
+          <button class="btn" id="btnAdd">프로그램 추가</button>
+          <button class="btn-line" id="btnRefresh">새로고침</button>
+          <button class="btn-line" id="btnRecount">인원 다시 계산</button>
+        </div>
+        <p class="muted">정원은 신청 중에도 바꿀 수 있어요. 공개를 끄면 학생 화면에서 사라지고 신청도 막혀요.</p>
+      </div>
+    </section>
+
+    <!-- 신청자 -->
+    <section data-pane="apps" class="hidden">
+      <div class="panel">
+        <div class="bar" style="margin-top:0">
+          <select id="filter" style="width:auto; min-width:200px"></select>
+          <button class="btn-line" id="btnLoadApps">새로고침</button>
+          <button class="btn" id="btnXlsx">엑셀 내려받기</button>
+          <span class="muted" id="appCount"></span>
+        </div>
+        <div class="scroll" style="margin-top:12px"><table>
+          <thead><tr><th style="width:60px">순번</th><th>프로그램</th><th>학번</th><th>이름</th><th>신청 시각</th><th style="width:80px"></th></tr></thead>
+          <tbody id="appRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- 명단 -->
+    <section data-pane="roster" class="hidden">
+      <div class="panel">
+        <h2>학생 명단 <span class="muted" id="rosterCount"></span></h2>
+        <p class="muted">이 학교 명단이에요. 엑셀에서 학번·이름 두 열을 복사해 그대로 붙여넣으세요. 한 줄에 한 명, 탭이나 쉼표로 구분돼요. 저장하면 이 학교의 기존 명단을 모두 바꿔요.<br>
+        명단 확인을 쓰려면 학교 설정에서 "학생 명단에 있는 학생만 신청 가능"을 켜세요.</p>
+        <textarea id="rosterText" style="min-height:220px" placeholder="10101	김민준&#10;10102	이서연"></textarea>
+        <div class="bar"><button class="btn" id="btnSaveRoster">명단 저장</button><span class="muted" id="rosterMsg"></span></div>
+      </div>
+    </section>
+
+    <!-- 학교 설정 -->
+    <section data-pane="settings" class="hidden">
+      <div class="panel">
+        <h2>학생에게 줄 링크</h2>
+        <div class="link-box">
+          <div>
+            <div class="link-url" id="linkUrl"></div>
+            <div class="bar" style="margin-top:0">
+              <button class="btn" id="btnCopy">링크 복사</button>
+              <button class="btn-line" id="btnQr">QR코드 저장</button>
+            </div>
+            <p class="muted" id="linkNote"></p>
+          </div>
+          <div id="qr" aria-label="신청 링크 QR코드"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>학교 설정</h2>
+        <div class="grid">
+          <div><label for="sName">학교 이름</label><input id="sName" placeholder="예: 인천불은초등학교"></div>
+          <div><label for="sCode">링크 코드 (영문 소문자·숫자·-)</label><input id="sCode" placeholder="예: bureun"></div>
+          <div><label for="sTitle">신청 페이지 제목</label><input id="sTitle"></div>
+          <div><label for="sMax">1인당 신청 가능 개수</label><input id="sMax" type="number" min="1"></div>
+          <div><label for="sOpen">신청 시작</label><input id="sOpen" type="datetime-local" step="1"></div>
+          <div><label for="sClose">신청 마감</label><input id="sClose" type="datetime-local" step="1"></div>
+        </div>
+        <div style="margin-top:12px"><label for="sNotice">안내 문구</label><textarea id="sNotice" placeholder="예: 1인 1개 프로그램만 신청할 수 있습니다."></textarea></div>
+        <div class="bar">
+          <label class="check"><input type="checkbox" id="sCancel"> 학생이 신청 기간 중 직접 취소 가능</label>
+          <label class="check"><input type="checkbox" id="sRoster"> 학생 명단에 있는 학생만 신청 가능</label>
+          <label class="check"><input type="checkbox" id="sActive"> 링크 열기 (끄면 학생이 접속할 수 없어요)</label>
+        </div>
+        <div class="bar"><button class="btn" id="btnSaveSettings">설정 저장</button></div>
+        <p class="muted">시작·마감 시각은 서버 시간 기준이에요. 링크 코드를 바꾸면 예전 링크와 QR코드는 더 이상 열리지 않아요.</p>
+      </div>
+
+      <div class="panel danger">
+        <h2>데이터 삭제</h2>
+        <p class="muted">삭제한 데이터는 되돌릴 수 없어요. 먼저 신청자 탭에서 엑셀을 내려받으세요. 다른 학교 데이터는 영향을 받지 않아요.</p>
+        <div class="bar">
+          <button class="btn-danger" id="btnReset">이 학교 신청 내역만 삭제</button>
+          <button class="btn-danger" id="btnDelSchool">이 학교 전체 삭제</button>
+        </div>
+        <p class="muted">신청 내역만 삭제: 학번·이름 기록이 지워지고 인원이 0명이 돼요. 프로그램·명단·설정은 남아요.<br>
+        학교 전체 삭제: 이 학교의 설정, 프로그램, 신청 내역, 학생 명단이 모두 지워지고 링크도 닫혀요.</p>
+      </div>
+    </section>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+// ===== index.html 과 같은 값을 넣으세요 =====
+const CONFIG = {
+  SUPABASE_URL: 'https://ovtaquutqrbrghpwkneo.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_r7ElUIDlBFzoJv3qwd-Tzw_pDtIrrDG'
+};
+// ============================================
+
+const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const normNo = s => String(s || '').replace(/\s/g, '').toUpperCase();
+const CODE_RE = /^[a-z0-9-]{2,40}$/;
+let schools = [], cur = null, programs = [], apps = [], currentTab = 'programs';
+
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2400); }
+function fail(e){ console.error(e); toast('오류: ' + (e.message || e)); }
+function toLocalInput(iso){ const d = new Date(iso); const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+const timeStr = d => new Date(d).toLocaleString('ko-KR', { hour12:false });
+
+// ---------- 로그인 ----------
+async function enter(){
+  const { data: ok, error } = await sb.rpc('is_admin');
+  if (error || !ok){
+    $('loginMsg').textContent = '관리자로 등록되지 않은 계정이에요. SQL Editor에서 admins 테이블에 이메일을 등록해 주세요.';
+    await sb.auth.signOut(); return;
+  }
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden'); $('schoolbar').classList.remove('hidden');
+  await loadSchools();
+}
+$('btnLogin').onclick = async () => {
+  $('loginMsg').textContent = '';
+  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('pw').value });
+  if (error){ $('loginMsg').textContent = '이메일 또는 비밀번호를 확인해 주세요.'; return; }
+  enter();
+};
+$('pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnLogin').click(); });
+$('btnOut').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+// ---------- 학교 ----------
+async function loadSchools(selectId){
+  const { data, error } = await sb.from('schools').select('*').order('created_at');
+  if (error) return fail(error);
+  schools = data;
+  const keep = selectId ?? cur?.id ?? Number(sessionStorageGet('school')) ?? null;
+  $('schoolSel').innerHTML = schools.map(s => `<option value="${s.id}">${esc(s.name)}${s.is_active ? '' : ' (닫힘)'}</option>`).join('');
+  const pick = schools.find(s => s.id === keep) || schools[0] || null;
+  if (pick) $('schoolSel').value = pick.id;
+  await selectSchool(pick);
+}
+function sessionStorageGet(k){ try { return sessionStorage.getItem(k); } catch(e){ return null; } }
+function sessionStorageSet(k, v){ try { sessionStorage.setItem(k, v); } catch(e){} }
+
+async function selectSchool(s){
+  cur = s;
+  if (!cur){ $('app').classList.add('hidden'); toast('"학교 추가"를 눌러 첫 학교를 만드세요.'); return; }
+  $('app').classList.remove('hidden');
+  sessionStorageSet('school', cur.id);
+  apps = [];
+  fillSettings(); renderLink();
+  await loadPrograms();
+  if (currentTab === 'apps') loadApps();
+  if (currentTab === 'roster') loadRosterCount();
+}
+$('schoolSel').onchange = () => selectSchool(schools.find(s => s.id === Number($('schoolSel').value)));
+
+$('btnAddSchool').onclick = async () => {
+  const name = (prompt('학교 이름을 입력하세요.\n예: 인천불은초등학교') || '').trim();
+  if (!name) return;
+  let code = (prompt('링크 코드를 정하세요. 영문 소문자, 숫자, - 만 쓸 수 있어요.\n예: bureun, sinyang-ms') || '').trim().toLowerCase();
+  if (!code) return;
+  if (!CODE_RE.test(code)) return toast('링크 코드는 영문 소문자·숫자·- 로 2~40자여야 해요.');
+  const { data, error } = await sb.from('schools').insert({ name, code }).select().single();
+  if (error) return toast(error.code === '23505' ? '이미 쓰고 있는 링크 코드예요. 다른 코드를 정하세요.' : '오류: ' + error.message);
+  toast(`${name}을(를) 추가했어요. 프로그램과 신청 시간을 설정하세요.`);
+  await loadSchools(data.id);
+};
+
+// ---------- 탭 ----------
+document.querySelector('nav').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]'); if (!b) return;
+  currentTab = b.dataset.tab;
+  document.querySelectorAll('nav button').forEach(x => x.setAttribute('aria-selected', x === b));
+  document.querySelectorAll('[data-pane]').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== currentTab));
+  if (currentTab === 'apps') loadApps();
+  if (currentTab === 'programs') loadPrograms();
+  if (currentTab === 'roster') loadRosterCount();
+});
+
+// ---------- 프로그램 ----------
+async function loadPrograms(){
+  if (!cur) return;
+  const { data, error } = await sb.from('programs').select('*').eq('school_id', cur.id).order('sort_order').order('id');
+  if (error) return fail(error);
+  programs = data;
+  const total = data.reduce((a, g) => a + g.applied, 0), cap = data.filter(g => g.is_active).reduce((a, g) => a + g.capacity, 0);
+  const fulls = data.filter(g => g.is_active && g.applied >= g.capacity).length;
+  $('stats').innerHTML = `<div><span class="muted">총 신청</span><b>${total}</b></div><div><span class="muted">공개 프로그램 정원 합계</span><b>${cap}</b></div><div><span class="muted">마감된 프로그램</span><b>${fulls}</b></div>`;
+  $('progRows').innerHTML = data.map(g => `<tr data-id="${g.id}">
+    <td><input type="number" data-f="sort_order" value="${g.sort_order}"></td>
+    <td><input data-f="name" value="${esc(g.name)}"></td>
+    <td><input data-f="description" value="${esc(g.description)}"></td>
+    <td><input type="number" min="0" data-f="capacity" value="${g.capacity}"></td>
+    <td class="num ${g.applied >= g.capacity ? 'full' : ''}">${g.applied}</td>
+    <td><input type="checkbox" data-f="is_active" ${g.is_active ? 'checked' : ''}></td>
+    <td><button class="btn-line" data-save>저장</button> <button class="btn-danger" data-del>삭제</button></td>
+  </tr>`).join('') || '<tr><td colspan="7" class="muted">"프로그램 추가"를 눌러 이 학교의 첫 프로그램을 만드세요.</td></tr>';
+  fillFilter();
+}
+$('progRows').addEventListener('click', async e => {
+  const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+  const id = Number(tr.dataset.id);
+  if (e.target.matches('[data-save]')){
+    const row = {};
+    tr.querySelectorAll('[data-f]').forEach(i => row[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.type === 'number' ? Number(i.value) : i.value.trim());
+    if (!row.name) return toast('프로그램 이름을 입력하세요.');
+    const { error } = await sb.from('programs').update(row).eq('id', id);
+    if (error) return fail(error);
+    toast('저장했어요.'); loadPrograms();
+  }
+  if (e.target.matches('[data-del]')){
+    const g = programs.find(x => x.id === id);
+    if (!confirm(`"${g.name}" 프로그램을 삭제할까요?\n이 프로그램의 신청 내역 ${g.applied}건도 함께 지워져요.`)) return;
+    const { error } = await sb.from('programs').delete().eq('id', id);
+    if (error) return fail(error);
+    toast('삭제했어요.'); loadPrograms();
+  }
+});
+$('btnAdd').onclick = async () => {
+  const max = programs.reduce((a, g) => Math.max(a, g.sort_order), 0);
+  const { error } = await sb.from('programs').insert({ school_id: cur.id, name: '새 프로그램', capacity: 20, sort_order: max + 1 });
+  if (error) return fail(error);
+  loadPrograms();
+};
+$('btnRefresh').onclick = loadPrograms;
+$('btnRecount').onclick = async () => {
+  const { error } = await sb.rpc('recount_programs'); if (error) return fail(error);
+  toast('신청 내역 기준으로 다시 계산했어요.'); loadPrograms();
+};
+
+// ---------- 신청자 ----------
+function fillFilter(){
+  const curVal = $('filter').value;
+  $('filter').innerHTML = '<option value="">전체 프로그램</option>' + programs.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  if (programs.some(g => String(g.id) === curVal)) $('filter').value = curVal;
+}
+async function fetchAll(table, cols, orders){
+  const out = []; const size = 1000;
+  for (let from = 0; ; from += size){
+    let q = sb.from(table).select(cols).eq('school_id', cur.id);
+    orders.forEach(o => q = q.order(o));
+    const { data, error } = await q.range(from, from + size - 1);
+    if (error) throw error;
+    out.push(...data);
+    if (data.length < size) break;
+  }
+  return out;
+}
+async function refreshApps(){
+  apps = await fetchAll('applications', 'id,program_id,student_no,student_name,created_at', ['program_id', 'created_at', 'id']);
+  const rank = {}; apps.forEach(a => { rank[a.program_id] = (rank[a.program_id] || 0) + 1; a.rank = rank[a.program_id]; });
+}
+async function loadApps(){
+  if (!cur) return;
+  try { await refreshApps(); } catch (e){ return fail(e); }
+  renderApps();
+}
+function shown(){ const f = $('filter').value; return f ? apps.filter(a => a.program_id === Number(f)) : apps; }
+function pname(id){ return (programs.find(g => g.id === id) || {}).name || '(삭제됨)'; }
+function renderApps(){
+  const rows = shown();
+  $('appCount').textContent = `${rows.length}건`;
+  $('appRows').innerHTML = rows.map(a => `<tr>
+    <td class="num">${a.rank}</td><td>${esc(pname(a.program_id))}</td><td class="num">${esc(a.student_no)}</td><td>${esc(a.student_name)}</td>
+    <td class="num">${timeStr(a.created_at)}.${String(new Date(a.created_at).getMilliseconds()).padStart(3,'0')}</td>
+    <td><button class="btn-danger" data-delapp="${a.id}">삭제</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">신청 내역이 없어요.</td></tr>';
+}
+$('filter').onchange = renderApps;
+$('btnLoadApps').onclick = loadApps;
+$('appRows').addEventListener('click', async e => {
+  const b = e.target.closest('[data-delapp]'); if (!b) return;
+  const a = apps.find(x => x.id === Number(b.dataset.delapp));
+  if (!confirm(`${a.student_no} ${a.student_name} 학생의 "${pname(a.program_id)}" 신청을 삭제할까요?`)) return;
+  const { error } = await sb.from('applications').delete().eq('id', a.id);
+  if (error) return fail(error);
+  toast('삭제했어요. 자리가 하나 늘었어요.'); loadApps(); loadPrograms();
+});
+
+$('btnXlsx').onclick = async () => {
+  try {
+    toast('엑셀 파일을 만드는 중…');
+    await loadPrograms();
+    await refreshApps();
+    const byNo = (a, b) => a.student_no.localeCompare(b.student_no, 'ko', { numeric:true });
+    const wb = XLSX.utils.book_new();
+    const used = new Set();
+    const add = (rows, name, widths) => {
+      const n = String(name).replace(/[\\\/\?\*\[\]:]/g, ' ').slice(0, 28) || '시트';
+      let k = n, i = 2; while (used.has(k)) k = n + '(' + i++ + ')'; used.add(k);
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = widths.map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, k);
+    };
+    add([['학번','이름','신청 프로그램','신청 시각']]
+      .concat([...apps].sort(byNo).map(a => [a.student_no, a.student_name, pname(a.program_id), timeStr(a.created_at)])),
+      '전체(학번순)', [12, 10, 28, 22]);
+    programs.forEach(g => {
+      const rows = apps.filter(a => a.program_id === g.id);
+      add([['순번','학번','이름','신청 시각']].concat(rows.map(a => [a.rank, a.student_no, a.student_name, timeStr(a.created_at)])),
+        g.name, [6, 12, 10, 22]);
+    });
+    const roster = await fetchAll('roster', 'student_no,student_name', ['student_no']);
+    if (roster.length){
+      const done = new Set(apps.map(a => a.student_no));
+      add([['학번','이름']].concat(roster.filter(r => !done.has(r.student_no)).sort(byNo).map(r => [r.student_no, r.student_name])),
+        '미신청 학생', [12, 10]);
+    }
+    const safe = cur.name.replace(/[\\\/:*?"<>|]/g, '');
+    XLSX.writeFile(wb, `신청결과_${safe}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    if (currentTab === 'apps') renderApps();
+  } catch (e){ fail(e); }
+};
+
+// ---------- 명단 ----------
+async function loadRosterCount(){
+  if (!cur) return;
+  const { count } = await sb.from('roster').select('*', { count: 'exact', head: true }).eq('school_id', cur.id);
+  $('rosterCount').textContent = `현재 ${count ?? 0}명`;
+}
+$('btnSaveRoster').onclick = async () => {
+  const map = new Map();
+  $('rosterText').value.split(/\r?\n/).forEach(line => {
+    const [no, ...rest] = line.split(/[\t,]/);
+    const n = normNo(no), name = rest.join(' ').trim();
+    if (n && name && n !== '학번') map.set(n, { school_id: cur.id, student_no: n, student_name: name });
+  });
+  const rows = [...map.values()];
+  if (!rows.length) return toast('붙여넣은 명단에서 학번·이름을 찾지 못했어요.');
+  if (!confirm(`${cur.name} 명단을 ${rows.length}명으로 바꿀까요?`)) return;
+  $('rosterMsg').textContent = '저장 중…';
+  let r = await sb.from('roster').delete().eq('school_id', cur.id);
+  if (r.error){ $('rosterMsg').textContent = ''; return fail(r.error); }
+  for (let i = 0; i < rows.length; i += 500){
+    r = await sb.from('roster').insert(rows.slice(i, i + 500));
+    if (r.error){ $('rosterMsg').textContent = ''; return fail(r.error); }
+  }
+  $('rosterMsg').textContent = `${rows.length}명 저장했어요.`;
+  $('rosterText').value = '';
+  loadRosterCount();
+};
+
+// ---------- 학교 설정·링크 ----------
+function studentLink(code){
+  const base = new URL('./', location.href);
+  base.search = ''; base.hash = '';
+  return base.href + '?school=' + encodeURIComponent(code);
+}
+function renderLink(){
+  const url = studentLink(cur.code);
+  $('linkUrl').textContent = url;
+  const local = location.protocol === 'file:';
+  $('linkNote').textContent = local
+    ? '지금은 내 컴퓨터에서 연 파일이라 링크가 학생에게 열리지 않아요. GitHub Pages에 올린 뒤 그 주소의 admin.html로 들어오면 학생용 링크가 정확히 나와요.'
+    : (cur.is_active ? '이 링크나 QR코드를 학교에 전달하세요.' : '지금은 링크가 닫혀 있어요. 아래 설정에서 "링크 열기"를 켜야 학생이 접속할 수 있어요.');
+  const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+  $('qr').innerHTML = `<img alt="QR코드" src="${qr.createDataURL(8, 2)}">`;
+}
+$('btnCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('linkUrl').textContent); toast('링크를 복사했어요.'); }
+  catch (e){ toast('복사하지 못했어요. 링크를 직접 선택해 복사하세요.'); }
+};
+$('btnQr').onclick = () => {
+  const qr = qrcode(0, 'M'); qr.addData(studentLink(cur.code)); qr.make();
+  const a = document.createElement('a');
+  a.href = qr.createDataURL(16, 4);
+  a.download = `신청QR_${cur.name.replace(/[\\\/:*?"<>|]/g, '')}.gif`;
+  a.click();
+};
+
+function fillSettings(){
+  $('sName').value = cur.name; $('sCode').value = cur.code; $('sTitle').value = cur.title;
+  $('sNotice').value = cur.notice; $('sMax').value = cur.max_per_student;
+  $('sOpen').value = toLocalInput(cur.open_at); $('sClose').value = toLocalInput(cur.close_at);
+  $('sCancel').checked = cur.allow_cancel; $('sRoster').checked = cur.use_roster; $('sActive').checked = cur.is_active;
+}
+$('btnSaveSettings').onclick = async () => {
+  const open = new Date($('sOpen').value), close = new Date($('sClose').value);
+  const code = $('sCode').value.trim().toLowerCase();
+  const name = $('sName').value.trim();
+  if (!name) return toast('학교 이름을 입력하세요.');
+  if (!CODE_RE.test(code)) return toast('링크 코드는 영문 소문자·숫자·- 로 2~40자여야 해요.');
+  if (isNaN(open) || isNaN(close)) return toast('시작·마감 시각을 입력하세요.');
+  if (close <= open) return toast('마감 시각이 시작 시각보다 늦어야 해요.');
+  if (code !== cur.code && !confirm('링크 코드를 바꾸면 이미 나눠 준 링크와 QR코드는 열리지 않아요. 바꿀까요?')) return;
+  const { error } = await sb.from('schools').update({
+    name, code, title: $('sTitle').value.trim() || '프로그램 신청', notice: $('sNotice').value,
+    max_per_student: Math.max(1, Number($('sMax').value) || 1),
+    open_at: open.toISOString(), close_at: close.toISOString(),
+    allow_cancel: $('sCancel').checked, use_roster: $('sRoster').checked, is_active: $('sActive').checked
+  }).eq('id', cur.id);
+  if (error) return toast(error.code === '23505' ? '이미 다른 학교가 쓰는 링크 코드예요.' : '오류: ' + error.message);
+  toast('설정을 저장했어요.');
+  await loadSchools(cur.id);
+};
+
+$('btnReset').onclick = async () => {
+  if (!confirm(`${cur.name}의 신청 내역을 모두 삭제할까요?\n엑셀을 먼저 내려받았는지 확인하세요. 되돌릴 수 없어요.`)) return;
+  if (prompt(`확인을 위해 학교 이름 "${cur.name}"을(를) 그대로 입력하세요.`) !== cur.name) return toast('학교 이름이 달라서 삭제하지 않았어요.');
+  const { error } = await sb.rpc('reset_applications', { p_school_id: cur.id });
+  if (error) return fail(error);
+  toast('이 학교의 신청 내역을 삭제했어요.'); apps = []; loadPrograms();
+};
+$('btnDelSchool').onclick = async () => {
+  if (!confirm(`${cur.name}을(를) 완전히 삭제할까요?\n설정, 프로그램, 신청 내역, 학생 명단이 모두 지워지고 링크도 닫혀요.`)) return;
+  if (prompt(`확인을 위해 학교 이름 "${cur.name}"을(를) 그대로 입력하세요.`) !== cur.name) return toast('학교 이름이 달라서 삭제하지 않았어요.');
+  const { error } = await sb.from('schools').delete().eq('id', cur.id);
+  if (error) return fail(error);
+  toast('학교를 삭제했어요.'); cur = null;
+  await loadSchools(null);
+};
+
+// ---------- 시작 ----------
+sb.auth.getSession().then(({ data }) => { if (data.session) enter(); });
+</script>
+</body>
+</html>
